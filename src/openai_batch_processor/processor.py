@@ -1,8 +1,11 @@
+# src/openai_batch_processor/processor.py
+
 import os
+import sys
 import time
 import json
 import tempfile
-from openai import OpenAI
+from openai import OpenAI, BadRequestError
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Iterable
 
@@ -50,6 +53,37 @@ class OpenAIBatchProcessor(ABC):
                  Example: {"custom_id": f"request-{index}", "method": "POST", ...}
         """
         pass
+
+    def validate_request(self, sample_item: Any, **kwargs) -> bool:
+        """
+        Sends a single synchronous request to validate API parameters before starting a batch.
+
+        :param sample_item: A single item from the dataset to use for validation.
+        :param kwargs: Additional arguments, including the model name.
+        :return: True if the request is successful, False otherwise.
+        """
+        print("\n--- Starting Parameter Validation Check ---")
+        try:
+            # Create a request for the single sample item. Index is 0 for simplicity.
+            request_data = self._create_request(sample_item, 0, **kwargs)
+            request_body = request_data['body']
+            
+            print(f"Validating with model '{request_body.get('model')}' using a sample request...")
+
+            # Make a synchronous call to the chat completions endpoint
+            self.client.chat.completions.create(**request_body)
+            
+            print("✅ Validation successful: API parameters are valid for the selected model.")
+            return True
+
+        except BadRequestError as e:
+            print("\n❌ Validation Failed: The API request was rejected.")
+            print("This often happens due to unsupported parameters for the selected model.")
+            print(f"Error Details: {e.message}")
+            return False
+        except Exception as e:
+            print(f"\n❌ An unexpected error occurred during validation: {e}")
+            return False
 
     def _prepare_and_upload_file(self, data: Iterable[Any], **kwargs) -> None:
         """
@@ -140,7 +174,6 @@ class OpenAIBatchProcessor(ABC):
             print(f"Cannot retrieve results as batch is not in 'completed' status. Final status: {batch.status}")
             if batch.error_file_id:
                 print("Error file exists. Checking error content.")
-                # Fall through to error file processing
             else:
                 return
 
@@ -149,13 +182,14 @@ class OpenAIBatchProcessor(ABC):
             file_content_response = self.client.files.content(batch.output_file_id)
             content = file_content_response.text
             
-            # Parse each line and add to results list
-            self.results = [json.loads(line) for line in content.strip().split('\n')]
+            self.results = [json.loads(line) for line in content.strip().split('\n') if line]
             print(f"Successfully retrieved {len(self.results)} results.")
 
             if output_path:
-                # Save results as JSON file (human-readable format)
                 results_filename = f"{output_path}_results.json"
+                output_dir = os.path.dirname(results_filename)
+                if output_dir:
+                    os.makedirs(output_dir, exist_ok=True)
                 with open(results_filename, 'w', encoding='utf-8') as f:
                     json.dump(self.results, f, ensure_ascii=False, indent=4)
                 print(f"Results saved to '{results_filename}' file.")
@@ -167,42 +201,50 @@ class OpenAIBatchProcessor(ABC):
             error_content_response = self.client.files.content(batch.error_file_id)
             error_content = error_content_response.text
             
-            self.errors = [json.loads(line) for line in error_content.strip().split('\n')]
+            self.errors = [json.loads(line) for line in error_content.strip().split('\n') if line]
             print(f"Found {len(self.errors)} errors in error file.")
 
             if output_path:
                 errors_filename = f"{output_path}_errors.jsonl"
+                output_dir = os.path.dirname(errors_filename)
+                if output_dir:
+                    os.makedirs(output_dir, exist_ok=True)
                 with open(errors_filename, 'w', encoding='utf-8') as f:
                     f.write(error_content)
                 print(f"Error content saved to '{errors_filename}' file.")
         else:
             print("No error file (error_file_id) available.")
 
-    def run(self, data: Iterable[Any], endpoint: str, output_path_prefix: str = "batch_output", poll_interval_seconds: int = 60, **kwargs):
+    def run(self, data: Iterable[Any], endpoint: str, output_path_prefix: str = "batch_output", poll_interval_seconds: int = 60, validate: bool = True, **kwargs):
         """
         Execute the complete batch processing workflow.
 
         :param data: Iterable of data to be processed.
         :param endpoint: API endpoint (e.g., "/v1/chat/completions").
-        :param output_path_prefix: File name prefix to use when saving result and error files.
+        :param output_path_prefix: File name prefix to use when saving result and error files. Can include a path.
         :param poll_interval_seconds: Status check interval in seconds.
+        :param validate: If True, runs a pre-flight synchronous request to validate parameters.
         :param kwargs: Additional arguments to be passed to the `_create_request` method.
         """
-        # Generate timestamp for unique output file names
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         output_path_with_timestamp = f"{output_path_prefix}_{timestamp}"
         
         try:
-            # 1. File preparation and upload
-            self._prepare_and_upload_file(data, **kwargs)
+            data_list = list(data)
+            if not data_list:
+                print("Data is empty, skipping process.")
+                return [], []
+
+            if validate:
+                is_valid = self.validate_request(data_list[0], **kwargs)
+                if not is_valid:
+                    print("\nHalting batch process due to validation failure.")
+                    return [], []
+                print("--- Validation Complete ---")
             
-            # 2. Batch creation
+            self._prepare_and_upload_file(data_list, **kwargs)
             self._create_batch(endpoint)
-
-            # 3. Status monitoring
             self._monitor_status(poll_interval_seconds)
-
-            # 4. Result retrieval and saving
             self._retrieve_and_save_results(output_path_with_timestamp)
             
             print("\nBatch processing workflow completed.")
