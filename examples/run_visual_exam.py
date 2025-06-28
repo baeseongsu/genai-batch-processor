@@ -77,7 +77,7 @@ class VisualExamProcessor(OpenAIBatchProcessor):
         :param kwargs: Additional arguments passed from `run` method (model).
         :return: Batch API request dictionary.
         """
-        model = kwargs.get("model", "gpt-4.1-nano") # Specify Vision model
+        model = kwargs.get("model", "gpt-4o") # Specify Vision model
 
         # Encode image file to Base64
         base64_image = image_to_base64(item["image_path"])
@@ -98,20 +98,28 @@ class VisualExamProcessor(OpenAIBatchProcessor):
             }
         ]
 
+        # Prepare request body
+        body = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": item["system_prompt"]},
+                {"role": "user", "content": user_content}
+            ],
+            "max_completion_tokens": 100, # Use 'max_completion_tokens' for o-series models
+            "temperature": 0.0,
+            "response_format": {"type": "json_object"}
+        }
+
+        # Remove temperature parameter if model starts with 'o', as it might not be supported
+        if model.lower().startswith('o'):
+            if "temperature" in body:
+                del body["temperature"]
+
         return {
             "custom_id": f"request-{index}",
             "method": "POST",
             "url": "/v1/chat/completions",
-            "body": {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": item["system_prompt"]},
-                    {"role": "user", "content": user_content}
-                ],
-                "max_tokens": 100,
-                "temperature": 0.0,
-                "response_format": {"type": "json_object"}
-            }
+            "body": body
         }
 
 # 2. Main execution block
@@ -134,13 +142,14 @@ if __name__ == "__main__":
     # OPENAI_API_KEY environment variable must be set.
     exam_solver = VisualExamProcessor()
 
-    # Execute actual batch API workflow
+    # --- Execute actual batch API workflow ---
+    # The run method now includes the validation step by default.
     results, errors = exam_solver.run(
         data=my_visual_shape_questions,
         endpoint="/v1/chat/completions",
-        output_path_prefix="my_shape_exam_job",
-        poll_interval_seconds=30, # Batch status check interval (seconds)
-        model="gpt-4.1-nano" # Vision model to be passed to _create_request
+        output_path_prefix="my_job/visual_exam", # The processor handles path creation
+        poll_interval_seconds=30, 
+        model="o4-mini" # Vision model to be passed to _create_request
     )
 
     # 3. Result verification and post-processing
