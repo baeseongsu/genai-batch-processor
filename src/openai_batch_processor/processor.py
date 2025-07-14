@@ -28,7 +28,7 @@ class OpenAIBatchProcessor(ABC):
         """
         Initialize the class and set up the OpenAI or Azure OpenAI client.
 
-        :param api_key: OpenAI API key. If None, uses the `OPENAI_API_KEY` environment variable for OpenAI or `AZURE_API_KEY` for Azure OpenAI.
+        :param api_key: OpenAI API key. If None, uses the `OPENAI_API_KEY` environment variable for OpenAI or `AZURE_OPENAI_API_KEY` for Azure OpenAI.
         :param azure_endpoint: Azure OpenAI endpoint URL. If provided, will use Azure OpenAI.
         :param api_version: Azure OpenAI API version. Only used with Azure OpenAI.
         :param azure_deployment: Azure OpenAI deployment name. Only used with Azure OpenAI.
@@ -36,9 +36,9 @@ class OpenAIBatchProcessor(ABC):
         # Check if Azure OpenAI configuration is provided
         if azure_endpoint:
             if api_key is None:
-                api_key = os.getenv("AZURE_API_KEY")
+                api_key = os.getenv("AZURE_OPENAI_API_KEY")
             if not api_key:
-                raise ValueError("Azure OpenAI API key is required. Pass it as an argument or set the AZURE_API_KEY environment variable.")
+                raise ValueError("Azure OpenAI API key is required. Pass it as an argument or set the AZURE_OPENAI_API_KEY environment variable.")
             
             self.client = AzureOpenAI(
                 api_key=api_key,
@@ -255,7 +255,7 @@ class OpenAIBatchProcessor(ABC):
         :param endpoint: API endpoint (e.g., "/v1/chat/completions").
         :param output_path_prefix: File name prefix to use when saving result and error files. Can include a path.
         :param poll_interval_seconds: Status check interval in seconds.
-        :param validate: If True, runs a pre-flight synchronous request to validate parameters.
+        :param validate: If True, runs a pre-flight synchronous request to validate parameters. Note: Skipped for Azure OpenAI as batch service doesn't share single inference API keys.
         :param kwargs: Additional arguments to be passed to the `_create_request` method.
         """
         timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -267,12 +267,14 @@ class OpenAIBatchProcessor(ABC):
                 print("Data is empty, skipping process.")
                 return [], []
 
-            if validate:
+            if validate and not self.is_azure:
                 is_valid = self.validate_request(data_list[0], **kwargs)
                 if not is_valid:
                     print("\nHalting batch process due to validation failure.")
                     return [], []
                 print("--- Validation Complete ---")
+            elif validate and self.is_azure:
+                print("--- Skipping validation for Azure OpenAI (batch service doesn't share single inference API keys) ---")
             
             self._prepare_and_upload_file(data_list, **kwargs)
             self._create_batch(endpoint)
