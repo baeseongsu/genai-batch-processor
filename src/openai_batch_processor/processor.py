@@ -6,8 +6,9 @@ import time
 import json
 import tempfile
 from openai import OpenAI, BadRequestError
+from openai import AzureOpenAI
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Iterable
+from typing import List, Dict, Any, Iterable, Optional
 
 class OpenAIBatchProcessor(ABC):
     """
@@ -23,18 +24,40 @@ class OpenAIBatchProcessor(ABC):
     3. Create an instance of your implemented class and call the `run` method.
     """
 
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: str = None, azure_endpoint: str = None, api_version: str = None, azure_deployment: str = None):
         """
-        Initialize the class and set up the OpenAI client.
+        Initialize the class and set up the OpenAI or Azure OpenAI client.
 
-        :param api_key: OpenAI API key. If None, uses the `OPENAI_API_KEY` environment variable.
+        :param api_key: OpenAI API key. If None, uses the `OPENAI_API_KEY` environment variable for OpenAI or `AZURE_API_KEY` for Azure OpenAI.
+        :param azure_endpoint: Azure OpenAI endpoint URL. If provided, will use Azure OpenAI.
+        :param api_version: Azure OpenAI API version. Only used with Azure OpenAI.
+        :param azure_deployment: Azure OpenAI deployment name. Only used with Azure OpenAI.
         """
-        if api_key is None:
-            api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OpenAI API key is required. Pass it as an argument or set the OPENAI_API_KEY environment variable.")
+        # Check if Azure OpenAI configuration is provided
+        if azure_endpoint:
+            if api_key is None:
+                api_key = os.getenv("AZURE_API_KEY")
+            if not api_key:
+                raise ValueError("Azure OpenAI API key is required. Pass it as an argument or set the AZURE_API_KEY environment variable.")
+            
+            self.client = AzureOpenAI(
+                api_key=api_key,
+                api_version=api_version or "2024-02-01",
+                azure_endpoint=azure_endpoint,
+                azure_deployment=azure_deployment
+            )
+            self.is_azure = True
+            self.azure_deployment = azure_deployment
+        else:
+            if api_key is None:
+                api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError("OpenAI API key is required. Pass it as an argument or set the OPENAI_API_KEY environment variable.")
+            
+            self.client = OpenAI(api_key=api_key)
+            self.is_azure = False
+            self.azure_deployment = None
         
-        self.client = OpenAI(api_key=api_key)
         self.input_file_id = None
         self.batch_id = None
         self.results = []
@@ -68,6 +91,10 @@ class OpenAIBatchProcessor(ABC):
             request_data = self._create_request(sample_item, 0, **kwargs)
             request_body = request_data['body']
             
+            # For Azure OpenAI, use the deployment name as the model
+            if self.is_azure and self.azure_deployment:
+                request_body['model'] = self.azure_deployment
+            
             print(f"Validating with model '{request_body.get('model')}' using a sample request...")
 
             # Make a synchronous call to the chat completions endpoint
@@ -98,6 +125,11 @@ class OpenAIBatchProcessor(ABC):
             temp_filename = tmp_file.name
             for i, item in enumerate(data):
                 request_line = self._create_request(item, i, **kwargs)
+                
+                # For Azure OpenAI, ensure the model field uses the deployment name
+                if self.is_azure and self.azure_deployment:
+                    request_line['body']['model'] = self.azure_deployment
+                
                 tmp_file.write(json.dumps(request_line) + "\n")
         
         print(f"Temporary file created: {temp_filename}")
@@ -255,3 +287,28 @@ class OpenAIBatchProcessor(ABC):
             traceback.print_exc()
         
         return self.results, self.errors
+
+
+class AzureOpenAIBatchProcessor(OpenAIBatchProcessor):
+    """
+    Convenience class for Azure OpenAI batch processing.
+    
+    This class provides a simplified interface for Azure OpenAI by automatically
+    setting up the Azure client configuration.
+    """
+    
+    def __init__(self, api_key: str, azure_endpoint: str, azure_deployment: str, api_version: str = "2024-02-01"):
+        """
+        Initialize Azure OpenAI batch processor.
+        
+        :param api_key: Azure OpenAI API key.
+        :param azure_endpoint: Azure OpenAI endpoint URL.
+        :param azure_deployment: Azure OpenAI deployment name.
+        :param api_version: Azure OpenAI API version.
+        """
+        super().__init__(
+            api_key=api_key,
+            azure_endpoint=azure_endpoint,
+            api_version=api_version,
+            azure_deployment=azure_deployment
+        )
