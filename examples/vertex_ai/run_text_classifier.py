@@ -27,7 +27,6 @@ load_dotenv()
 
 # --- Import the base class ---
 from src.genai_batch_processor.vertex_ai_batch_processor import VertexAIBatchProcessor
-from google.genai import types
 
 # 1. Custom class implementation
 class MyVertexTextClassifier(VertexAIBatchProcessor):
@@ -43,13 +42,12 @@ class MyVertexTextClassifier(VertexAIBatchProcessor):
             project_id: Google Cloud project ID.
             location: Google Cloud location.
             generation_config: The generation configuration for the model.
-            **kwargs: Additional configuration options, including thinking_budget.
+            **kwargs: Additional configuration options.
         """
         super().__init__(project_id, location)
         if not generation_config:
             raise ValueError("A generation_config is required for the classifier.")
         self.generation_config = generation_config
-        self.thinking_config = types.ThinkingConfig(thinking_budget=kwargs.get("thinking_budget", 0))
 
     def _create_request_data(self, item: str) -> Dict[str, Any]:
         """
@@ -68,13 +66,11 @@ class MyVertexTextClassifier(VertexAIBatchProcessor):
         )
 
         request_data = {
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": self.generation_config
+            "contents": [
+                {"role": "user", "parts": [{"text": prompt}]},
+            ],
+            "generationConfig": self.generation_config.copy()
         }
-        
-        # Add thinking config if it has a non-zero budget
-        if self.thinking_config.thinking_budget > 0:
-            request_data["thinking_config"] = self.thinking_config
             
         return request_data
 
@@ -99,7 +95,7 @@ if __name__ == "__main__":
     # Define GCS paths for input and output files.
     gcs_input_uri = f"gs://{bucket_name}/inputs/requests_{timestamp}.jsonl"
     gcs_output_uri = f"gs://{bucket_name}/outputs/" # Output must be a folder URI.
-    local_save_path = f"results/vertex_classification_results_{timestamp}.csv"
+    local_save_path = f"results/vertex_classification_results_{timestamp}.jsonl"
     
     # --- Data and Model Parameters ---
     # A sample dataset for classification.
@@ -125,8 +121,7 @@ if __name__ == "__main__":
     classifier = MyVertexTextClassifier(
         project_id=PROJECT_ID,
         location=LOCATION,
-        generation_config=generation_config,
-        thinking_budget=0  # Can be adjusted for thinking mode
+        generation_config=generation_config
     )
 
     try:
@@ -148,12 +143,13 @@ if __name__ == "__main__":
         # 3. Result verification and post-processing
         if results_df is not None:
             print(f"\n--- ✅ Job Completed: Detailed Processing Results (Model: {MODEL_ID}) ---")
+            print(f"--- Results saved to: {local_save_path} ---")
             
-            # The results are returned in the same order as the input data.
+            # Parse and display results from JSONL format
             for original_text, (_, row) in zip(my_sample_texts, results_df.iterrows()):
                 print(f"\n[Original] \"{original_text}\"")
                 try:
-                    # The 'response' column in the DataFrame contains the parsed JSON from the API.
+                    # The 'response' column contains the parsed API response
                     response_data = row['response']
                     
                     # Handle potential errors on a per-item basis.
@@ -168,6 +164,7 @@ if __name__ == "__main__":
                 except (KeyError, IndexError, TypeError) as e:
                     error_message = row.get('error', f'An exception occurred during parsing: {e}')
                     print(f"  🚨 Error processing this item: {error_message}")
+                
         else:
             print("\n--- ❌ Job did not return results. ---")
 
