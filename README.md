@@ -1,1 +1,1 @@
-# openai-batch-processor
+# genai-batch-processor

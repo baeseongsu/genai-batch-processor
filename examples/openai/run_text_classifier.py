@@ -1,3 +1,15 @@
+# -*- coding: utf-8 -*-
+"""
+Example script for running a text classification batch job using the OpenAIBatchProcessor.
+
+This script demonstrates how to:
+1.  Define a custom processor class for a specific task (text classification).
+2.  Prepare input data for batch processing.
+3.  Execute the batch processing job using the OpenAI Batch API.
+4.  Retrieve, parse, and display the results.
+5.  Handle errors and post-process the results.
+"""
+
 import os
 import sys
 from typing import Dict, List
@@ -6,32 +18,31 @@ from dotenv import load_dotenv
 # --- Environment setup and path configuration ---
 # Add the project root to Python path so this script can find the 'src' directory.
 # This allows running the example directly without needing 'pip install .'.
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, project_root)
 
 # Load environment variables (OPENAI_API_KEY) from .env file.
 load_dotenv()
 
-# --- Import class from package ---
-# Thanks to __init__.py, we can import the class concisely.
-from src.openai_batch_processor import OpenAIBatchProcessor
+# --- Import the base class ---
+from src.genai_batch_processor import OpenAIBatchProcessor
 
 
 # 1. Custom class implementation
 class MyTextClassifier(OpenAIBatchProcessor):
     """
-    Batch processing class for text classification tasks.
-    Inherits from OpenAIBatchProcessor and implements the _create_request method.
+    Batch processor for text classification. It inherits from OpenAIBatchProcessor
+    and implements the request creation logic for the classification task.
     """
     
     def _create_request(self, item: str, index: int, **kwargs) -> Dict:
         """
-        Converts string data into a classification request using gpt-3.5-turbo.
+        Converts a string of text into an OpenAI Batch API request for classification.
 
-        :param item: Text sentence to classify.
+        :param item: A text sentence to classify.
         :param index: Index for creating unique request ID.
         :param kwargs: Additional arguments passed from the `run` method (model in this case).
-        :return: Batch API request dictionary.
+        :return: A dictionary formatted as an OpenAI Batch API request.
         """
         model = kwargs.get("model", "gpt-4.1-nano") # Default model setting
 
@@ -52,7 +63,10 @@ class MyTextClassifier(OpenAIBatchProcessor):
 
 # 2. Main execution block
 if __name__ == "__main__":
-    # Large dataset to process (sample)
+    print("--- 🚀 Starting OpenAI text classification batch job ---")
+
+    # --- Data and Model Parameters ---
+    # A sample dataset for classification.
     my_sample_texts: List[str] = [
         "The weather today is absolutely beautiful!",
         "I'm feeling wonderful after a great night's sleep.",
@@ -62,13 +76,12 @@ if __name__ == "__main__":
         "An unforgettable experience, truly one for the books."
     ]
 
-    print("--- Starting text classification batch job ---")
-
-    # Create class instance using API key.
+    # --- Job Execution ---
+    # Instantiate the custom classifier.
     # OpenAIBatchProcessor constructor automatically reads OPENAI_API_KEY environment variable.
     classifier = MyTextClassifier() 
     
-    # Call the `run` method to execute the entire process
+    # Run the entire batch process: validate, upload, create job, monitor, and get results.
     results, errors = classifier.run(
         data=my_sample_texts,
         endpoint="/v1/chat/completions",
@@ -78,12 +91,12 @@ if __name__ == "__main__":
     )
     
     # 3. Result verification and post-processing
-    print("\n--- Job Summary ---")
+    print("\n--- ✅ Job Completed: Detailed Processing Results ---")
     print(f"Final batch status: {classifier.final_batch_status}")
     print(f"Total {len(results)} results, {len(errors)} errors.")
 
     if results:
-        print("\n--- Detailed Processing Results ---")
+        print("\n--- Processing Results ---")
         # Sort results by custom_id order to easily match with original data.
         sorted_results = sorted(results, key=lambda r: int(r['custom_id'].split('-')[1]))
 
@@ -104,6 +117,8 @@ if __name__ == "__main__":
                 print(f"  ⚠️ API error response (status code: {res['response']['status_code']}): {res['response']['body']}")
 
     if errors:
-        print("\n--- Critical errors during processing ---")
+        print("\n--- ❌ Critical errors during processing ---")
         for err in errors:
             print(err)
+
+    print("--- ✨ All operations finished. ---")

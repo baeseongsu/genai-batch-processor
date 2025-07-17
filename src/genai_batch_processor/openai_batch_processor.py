@@ -1,16 +1,28 @@
-# src/openai_batch_processor/processor.py
+"""
+OpenAI Batch Processor Module
+
+This module provides a batch processor for OpenAI's Batch API,
+supporting both standard OpenAI and Azure OpenAI services.
+
+Written by: seongsu@kaist.ac.kr and Claude 4 Sonnet
+Date: 2025-07-17
+"""
 
 import os
 import sys
 import time
 import json
 import tempfile
-from openai import OpenAI, BadRequestError
-from openai import AzureOpenAI
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Iterable, Optional
 
-class OpenAIBatchProcessor(ABC):
+from openai import OpenAI, BadRequestError
+from openai import AzureOpenAI
+
+from .base import BaseBatchProcessor
+
+
+class OpenAIBatchProcessor(BaseBatchProcessor):
     """
     Abstract base class for processing asynchronous inference using the OpenAI Batch API.
 

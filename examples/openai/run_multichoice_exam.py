@@ -1,38 +1,49 @@
+# -*- coding: utf-8 -*-
+"""
+Example script for running a multiple choice exam batch job using the OpenAIBatchProcessor.
+
+This script demonstrates how to:
+1.  Define a custom processor class for a specific task (multiple choice question answering).
+2.  Prepare input data for batch processing with pre-formatted messages.
+3.  Execute the batch processing job using the OpenAI Batch API.
+4.  Retrieve, parse, and display the results.
+5.  Handle errors and post-process the results.
+"""
+
 import os
 import sys
 import json
 from typing import Dict, List
 from dotenv import load_dotenv
 
-# --- Environment Setup and Path Configuration ---
-# Add the project root to the Python path so this script can find the 'src' directory.
-# This allows running examples directly without 'pip install .'.
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+# --- Environment setup and path configuration ---
+# Add the project root to Python path so this script can find the 'src' directory.
+# This allows running the example directly without needing 'pip install .'.
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, project_root)
 
 # Load environment variables (OPENAI_API_KEY) from .env file.
 load_dotenv()
 
-# --- Import Classes from Package ---
-# Thanks to __init__.py, we can import classes concisely.
-from src.openai_batch_processor import OpenAIBatchProcessor
+# --- Import the base class ---
+from src.genai_batch_processor import OpenAIBatchProcessor
 
 
-# 1. Custom Class Implementation
+# 1. Custom class implementation
 class MultiChoiceExamProcessor(OpenAIBatchProcessor):
     """
-    Batch processing class for multiple choice question solving tasks.
-    Inherits from OpenAIBatchProcessor and implements the _create_request method.
+    Batch processor for multiple choice question solving. It inherits from OpenAIBatchProcessor
+    and implements the request creation logic for the exam solving task.
     """
 
     def _create_request(self, item: List[Dict], index: int, **kwargs) -> Dict:
         """
-        Convert pre-formatted message list to API request format.
+        Converts pre-formatted message list into an OpenAI Batch API request for exam solving.
 
-        :param item: 'messages' list to be used for API request.
-        :param index: Index for generating unique request ID.
-        :param kwargs: Additional arguments passed from `run` method (in this case, model).
-        :return: Batch API request dictionary.
+        :param item: A list of messages to be used for the API request.
+        :param index: Index for creating unique request ID.
+        :param kwargs: Additional arguments passed from the `run` method (model in this case).
+        :return: A dictionary formatted as an OpenAI Batch API request.
         """
         model = kwargs.get("model", "gpt-4.1-nano")  # Default model setting
 
@@ -49,9 +60,12 @@ class MultiChoiceExamProcessor(OpenAIBatchProcessor):
             }
         }
 
-# 2. Main Execution Block
+# 2. Main execution block
 if __name__ == "__main__":
-    # Dataset to process. Each item is a 'messages' list to be passed to the API.
+    print("--- 🚀 Starting OpenAI multiple choice exam batch job ---")
+
+    # --- Data and Model Parameters ---
+    # A sample dataset for exam solving. Each item is a 'messages' list to be passed to the API.
     # Changed domain to 'medical'.
     my_medical_questions: List[List[Dict]] = [
         [ # First question (corresponds to one API call)
@@ -64,28 +78,28 @@ if __name__ == "__main__":
         # If needed, other medical-related 'messages' lists can be added here.
     ]
 
-    print("--- Starting Multiple Choice Question Solving Batch Job ---")
-
-    # Create class instance. API key is automatically read from environment variables.
+    # --- Job Execution ---
+    # Instantiate the custom exam solver.
+    # OpenAIBatchProcessor constructor automatically reads OPENAI_API_KEY environment variable.
     exam_solver = MultiChoiceExamProcessor()
 
-    # Call `run` method to execute the entire process
+    # Run the entire batch process: validate, upload, create job, monitor, and get results.
     results, errors = exam_solver.run(
         data=my_medical_questions,
         endpoint="/v1/chat/completions",
-        output_path_prefix="my_medical_exam_job",  # Changed result file name prefix
+        output_path_prefix="my_medical_exam_job",  # Result file name prefix
         poll_interval_seconds=30,  # Check status every 30 seconds
-        model="gpt-4.1-nano"  # Specify model to use
+        model="gpt-4.1-nano"  # Specify model to use (passed to _create_request)
     )
 
-    # 3. Result Verification and Post-processing
-    print("\n--- Job Summary ---")
+    # 3. Result verification and post-processing
+    print("\n--- ✅ Job Completed: Detailed Processing Results ---")
     print(f"Final batch status: {exam_solver.final_batch_status}")
     print(f"Total {len(results)} results, {len(errors)} errors.")
 
     if results:
-        print("\n--- Detailed Processing Results ---")
-        # Sort results by custom_id order for easy matching with original data
+        print("\n--- Processing Results ---")
+        # Sort results by custom_id order to easily match with original data.
         sorted_results = sorted(results, key=lambda r: int(r['custom_id'].split('-')[1]))
 
         for res in sorted_results:
@@ -100,7 +114,6 @@ if __name__ == "__main__":
                 question_preview = user_content.split('Question:')[1].strip().split('\n')[0]
             except IndexError:
                 question_preview = "Unable to confirm question content"
-
 
             print(f"\n[Original] \"{question_preview}...\" (ID: {custom_id})")
 
@@ -121,6 +134,8 @@ if __name__ == "__main__":
                 print(f"  ⚠️ API error response (status code: {res['response']['status_code']}): {res['response']['body']}")
 
     if errors:
-        print("\n--- Critical Errors During Processing ---")
+        print("\n--- ❌ Critical errors during processing ---")
         for err in errors:
             print(err)
+
+    print("--- ✨ All operations finished. ---")

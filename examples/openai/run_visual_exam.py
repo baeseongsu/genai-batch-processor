@@ -1,3 +1,15 @@
+# -*- coding: utf-8 -*-
+"""
+Example script for running a visual examination batch job using the OpenAIBatchProcessor.
+
+This script demonstrates how to:
+1.  Define a custom processor class for a specific task (visual question answering).
+2.  Prepare input data for batch processing with images.
+3.  Execute the batch processing job using the OpenAI Batch API.
+4.  Retrieve, parse, and display the results.
+5.  Handle errors and post-process the results.
+"""
+
 import os
 import sys
 import json
@@ -13,24 +25,17 @@ except ImportError:
     print("Pillow library is required. Please run 'pip install Pillow'.")
     sys.exit(1)
 
-
-# --- Environment Setup and Path Configuration ---
-# Add the project root to the Python path so this script can find the 'src' directory.
-# (e.g., this file is in the 'examples' folder alongside the 'src' folder)
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+# --- Environment setup and path configuration ---
+# Add the project root to Python path so this script can find the 'src' directory.
+# This allows running the example directly without needing 'pip install .'.
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, project_root)
+
+# Load environment variables (OPENAI_API_KEY) from .env file.
 load_dotenv()
 
-# --- Import the actual OpenAIBatchProcessor class ---
-# Import the class from the provided 'src/openai_batch_processor/processor.py' file.
-# Assumes that the 'src/openai_batch_processor/__init__.py' file is configured like
-# 'from .processor import OpenAIBatchProcessor'.
-try:
-    from src.openai_batch_processor.processor import OpenAIBatchProcessor
-except ImportError:
-    print("Error: Could not find OpenAIBatchProcessor from 'src.openai_batch_processor.processor'.")
-    print("Please check your project structure. This script should be located at the same level as the 'src' directory (e.g., in 'examples').")
-    sys.exit(1)
+# --- Import the base class ---
+from src.genai_batch_processor import OpenAIBatchProcessor
 
 
 # --- Helper functions: Image processing ---
@@ -61,23 +66,23 @@ def create_shape_image(path: str = "sample_shape.png"):
     print(f"Generated example image '{path}'.")
 
 
-# 1. Custom class implementation for visual problem solving
+# 1. Custom class implementation
 class VisualExamProcessor(OpenAIBatchProcessor):
     """
-    Batch processing class for multiple choice question solving tasks with images.
-    Inherits from the actual OpenAIBatchProcessor.
+    Batch processor for visual examination with images. It inherits from OpenAIBatchProcessor
+    and implements the request creation logic for the visual question answering task.
     """
 
     def _create_request(self, item: Dict, index: int, **kwargs) -> Dict:
         """
-        Convert data containing text and image paths to Vision API request format.
+        Converts a data item containing text and image paths into an OpenAI Batch API request for visual examination.
 
         :param item: Dictionary containing 'system_prompt', 'user_prompt', 'image_path'.
-        :param index: Index for generating unique request ID.
-        :param kwargs: Additional arguments passed from `run` method (model).
-        :return: Batch API request dictionary.
+        :param index: Index for creating unique request ID.
+        :param kwargs: Additional arguments passed from the `run` method (model in this case).
+        :return: A dictionary formatted as an OpenAI Batch API request.
         """
-        model = kwargs.get("model", "gpt-4o") # Specify Vision model
+        model = kwargs.get("model", "gpt-4o") # Default model setting
 
         # Encode image file to Base64
         base64_image = image_to_base64(item["image_path"])
@@ -124,10 +129,13 @@ class VisualExamProcessor(OpenAIBatchProcessor):
 
 # 2. Main execution block
 if __name__ == "__main__":
+    print("--- 🚀 Starting visual examination batch job ---")
+
     # Generate sample shape image for example execution
     create_shape_image("sample_shape.png")
 
-    # Dataset to process: includes image paths and prompts
+    # --- Data and Model Parameters ---
+    # A sample dataset for visual examination.
     my_visual_shape_questions: List[Dict] = [
         {
             "system_prompt": "You are a shape recognition expert. Look at the provided image and question, then select the most appropriate answer in JSON format.",
@@ -136,34 +144,35 @@ if __name__ == "__main__":
         }
     ]
 
-    print("--- Starting Image-included Multiple Choice Question Solving Batch Job ---")
     print("Note: This script calls the actual OpenAI API and may incur charges.")
 
-    # OPENAI_API_KEY environment variable must be set.
+    # --- Job Execution ---
+    # Instantiate the custom visual examiner.
+    # OpenAIBatchProcessor constructor automatically reads OPENAI_API_KEY environment variable.
     exam_solver = VisualExamProcessor()
 
-    # --- Execute actual batch API workflow ---
-    # The run method now includes the validation step by default.
+    # Run the entire batch process: validate, upload, create job, monitor, and get results.
     results, errors = exam_solver.run(
         data=my_visual_shape_questions,
         endpoint="/v1/chat/completions",
-        output_path_prefix="my_job/visual_exam", # The processor handles path creation
-        poll_interval_seconds=30, 
-        model="o4-mini" # Vision model to be passed to _create_request
+        output_path_prefix="my_job/visual_exam", # Result file name prefix
+        poll_interval_seconds=30, # Check status every 30 seconds
+        model="o4-mini" # Specify model to use (passed to _create_request)
     )
 
     # 3. Result verification and post-processing
-    print("\n--- Job Summary ---")
+    print("\n--- ✅ Job Completed: Detailed Processing Results ---")
     print(f"Final batch status: {exam_solver.final_batch_status}")
     print(f"Total {len(results)} results, {len(errors)} errors.")
 
     if results:
-        print("\n--- Detailed Processing Results ---")
-        # Sort results by custom_id order for easy matching with original data
+        print("\n--- Processing Results ---")
+        # Sort results by custom_id order to easily match with original data.
         sorted_results = sorted(results, key=lambda r: int(r['custom_id'].split('-')[1]))
 
         for res in sorted_results:
             custom_id = res.get('custom_id')
+            # Extract index from custom_id (e.g., "request-0" -> 0)
             original_index = int(custom_id.split('-')[1])
             original_data = my_visual_shape_questions[original_index]
             question_preview = original_data['user_prompt'].split('\nQuestion:')[1].strip().split('\n')[0]
@@ -193,11 +202,13 @@ if __name__ == "__main__":
                 print(f"  ⚠️ API error response (status code: {res['response']['status_code']}): {res['response']['body']}")
 
     if errors:
-        print("\n--- Critical Errors During Processing ---")
+        print("\n--- ❌ Critical errors during processing ---")
         for err in errors:
             print(err)
 
     # Clean up generated image file
     if os.path.exists("sample_shape.png"):
         os.remove("sample_shape.png")
-        print("\nCleaned up 'sample_shape.png' file.")
+        print("\n✨ Cleaned up 'sample_shape.png' file.")
+
+    print("--- ✨ All operations finished. ---")
